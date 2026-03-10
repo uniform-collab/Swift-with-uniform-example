@@ -13,6 +13,23 @@ struct UniformCompositionResponse: Codable {
     let type: String
     let matchedRoute: String
     let compositionApiResponse: CompositionApiResponse
+    let debug: DebugResponse?
+}
+
+struct DebugResponse: Codable {
+    let visitorEndpointTimeMs: Double?
+    let uniformRouteTimeMs: Double?
+    let processCompositionTimeMs: Double?
+    let xVercelCache: String?
+    let cfCacheStatus: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case visitorEndpointTimeMs
+        case uniformRouteTimeMs
+        case processCompositionTimeMs
+        case xVercelCache = "x-vercel-cache"
+        case cfCacheStatus = "Cf-Cache-Status"
+    }
 }
 
 struct CompositionApiResponse: Codable {
@@ -105,3 +122,14 @@ extension CarouselSlideViewModel {
     }
 }
 
+// MARK: - Debug Info
+
+struct DebugInfo {
+    let uniformServiceCallTimeMs: Double?
+    let visitorEndpointTimeMs: Double?
+    let uniformRouteTimeMs: Double?
+    let processCompositionTimeMs: Double?
+    let xVercelCache: String?
+    let cfCacheStatus: String? // Personalization Worker Cache Status (from HTTP headers)
+    let uniformApiCacheStatus: String? // Uniform API Call Time cache status (from JSON debug section)
+}
