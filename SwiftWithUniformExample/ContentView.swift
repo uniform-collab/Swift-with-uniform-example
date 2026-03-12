@@ -12,8 +12,7 @@ struct ContentView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Visitor switcher
-            visitorSwitcher
+            topBar
             
             ZStack {
             if uniformService.isLoading {
@@ -39,23 +38,22 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent)
                 }
                 .padding()
-            } else if uniformService.slides.isEmpty {
-                Text("No slides available")
+            } else if uniformService.contentItems.isEmpty {
+                Text("No content available")
                     .foregroundColor(.secondary)
             } else {
-                ZStack {
-                    CarouselView(slides: uniformService.slides)
-                    
-                    // Debug info overlay
-                    if let debugInfo = uniformService.debugInfo {
-                        VStack {
-                            Spacer()
-                            HStack {
-                                Spacer()
-                                DebugInfoView(debugInfo: debugInfo)
-                                    .padding()
+                ZStack(alignment: .bottomTrailing) {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ForEach(uniformService.contentItems) { item in
+                                ComponentRegistry.view(for: item)
                             }
                         }
+                    }
+                    
+                    if let profile = uniformService.selectedProfile {
+                        VisitorProfileInfoView(profile: profile)
+                            .padding()
                     }
                 }
             }
@@ -64,84 +62,114 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
             await uniformService.fetchComposition()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                await uniformService.fetchComposition()
+            }
         }
     }
     
-    private var visitorSwitcher: some View {
-        HStack(spacing: 12) {
-            Text("Visitor:")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            Picker("Visitor", selection: Binding(
-                get: { uniformService.selectedVisitorId },
-                set: { newValue in
-                    uniformService.selectedVisitorId = newValue
-                    Task { await uniformService.fetchComposition() }
-                }
-            )) {
-                ForEach(UniformService.visitorIds, id: \.self) { id in
-                    Text("Visitor \(id)").tag(id)
+    private var topBar: some View {
+        ZStack {
+            Image("Logo")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(height: 24)
+                .foregroundColor(.primary)
+            
+            HStack {
+                Spacer()
+                
+                Menu {
+                    ForEach(uniformService.visitorProfiles) { profile in
+                        Button {
+                            uniformService.selectedVisitorId = profile.id
+                            Task { await uniformService.fetchComposition() }
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(profile.name)
+                                    Text("\(profile.audience) · \(profile.geoProximity) · \(profile.membershipStatus)")
+                                        .font(.caption)
+                                }
+                                if uniformService.selectedVisitorId == profile.id {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        if let profile = uniformService.selectedProfile {
+                            Text(profile.name.components(separatedBy: " ").first ?? profile.name)
+                                .font(.subheadline)
+                                .foregroundColor(.primary)
+                        }
+                        Image(systemName: "person.crop.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.white, Color.accentColor)
+                    }
                 }
             }
-            .pickerStyle(.segmented)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .background(Color(.secondarySystemBackground))
     }
 }
 
-// MARK: - Debug Info View
+// MARK: - Visitor Profile Info View
 
-struct DebugInfoView: View {
-    let debugInfo: DebugInfo
+struct VisitorProfileInfoView: View {
+    let profile: VisitorProfile
     
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Personalization Worker Cache Status: \(formatStringValue(debugInfo.cfCacheStatus))")
-                .font(.system(.caption, design: .monospaced))
-                .foregroundColor(.white)
-
-            Text("Personalization Worker Call Time: \(formatValue(debugInfo.uniformServiceCallTimeMs))")
-                .font(.system(.caption, design: .monospaced))
-                .foregroundColor(.white)
-
-            Text("Customer Context Cache Status: \(formatStringValue(debugInfo.xVercelCache))")
-                .font(.system(.caption, design: .monospaced))
-                .foregroundColor(.white)
+            HStack(spacing: 6) {
+                Text(profile.name)
+                    .font(.system(.caption, design: .monospaced))
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                Spacer()
+                Text(profile.membershipStatus)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundColor(profile.membershipStatus == "member" ? .green : .gray)
+            }
             
-            Text("Customer Context Call Time: \(formatValue(debugInfo.visitorEndpointTimeMs))")
-                .font(.system(.caption, design: .monospaced))
-                .foregroundColor(.white)
+            Divider().background(Color.white.opacity(0.3))
             
-            Text("Uniform API Call Time: \(formatValue(debugInfo.uniformRouteTimeMs))")
-                .font(.system(.caption, design: .monospaced))
-                .foregroundColor(.white)
+            infoRow("Audience", profile.audience)
+            infoRow("Geo", "\(profile.geoProximity) · \(profile.zipCode)")
             
-            Text("Uniform API Cache Status: \(formatStringValue(debugInfo.uniformApiCacheStatus))")
-                .font(.system(.caption, design: .monospaced))
-                .foregroundColor(.white)
-
+            if let reservation = profile.reservation {
+                Divider().background(Color.white.opacity(0.3))
+                infoRow("Hotel", reservation.hotelName)
+                infoRow("Dates", "\(reservation.checkIn) → \(reservation.checkOut)")
+                Text(reservation.confirmationNumber)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.5))
+            } else {
+                Text("No reservation")
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.5))
+                    .padding(.top, 2)
+            }
         }
-        .padding(8)
+        .padding(10)
         .background(Color.black.opacity(0.7))
         .cornerRadius(8)
+        .frame(maxWidth: 260)
     }
     
-    private func formatValue(_ value: Double?) -> String {
-        if let value = value {
-            return String(format: "%.2f", value)
-        } else {
-            return "missing"
+    private func infoRow(_ label: String, _ value: String) -> some View {
+        HStack(spacing: 4) {
+            Text("\(label):")
+                .foregroundColor(.white.opacity(0.7))
+            Text(value)
+                .foregroundColor(.white)
         }
-    }
-    
-    private func formatStringValue(_ value: String?) -> String {
-        if let value = value {
-            return value
-        } else {
-            return "missing"
-        }
+        .font(.system(.caption, design: .monospaced))
     }
 }
 
